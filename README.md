@@ -1,7 +1,5 @@
 # Shopify Admin Inspector (Chrome Extension)
 
-Extensión Chrome (Manifest V3) para consultar Shopify Admin API **sin backend** (sin Postman).
-
 ## Instalación (modo developer)
 1. Abrí Chrome → `chrome://extensions`
 2. Activá **Developer mode**
@@ -30,12 +28,3 @@ Abrí el popup:
 - **View detail**: carga el detalle completo del registro seleccionado
 - **View payload**: abre el JSON completo (search o detail) en un modal
 - **Download payload**: descarga el último payload como archivo `.json`
-
-## UI / UX
-- Popup y Options con componentes estilo Material (cards, chips, botones tonales, elevación, estados)
-- Flujo orientado a búsqueda acotada para uso responsable de la API
-- Vista de detalle por registro con resumen visual + payload completo
-- Validación de dominio y duplicados al guardar stores en Options
-
-## Notas de seguridad
-Sin backend, el token queda guardado localmente en tu navegador (`chrome.storage.local`). Usalo para entornos internos.
