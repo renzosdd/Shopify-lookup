@@ -2,98 +2,362 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>Shopify Admin Inspector</title>
+    <title>Shopify Lookup</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link rel="stylesheet" href="styles.css" />
     <style>
-      body { width: 430px; min-height: 560px; }
-      .title-panel { background: linear-gradient(120deg, #ffffff, #f4f8ff); }
+      * { box-sizing: border-box; }
+      body {
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        margin: 0;
+        padding: 12px;
+        width: 390px;
+        background: #f8fafc;
+        color: #0f172a;
+      }
+      .card {
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 16px;
+        padding: 14px;
+        margin-bottom: 12px;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+      }
+      .card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+      .card-title {
+        font-weight: 700;
+        font-size: 16px;
+        color: #111827;
+      }
+      .card-subtitle {
+        font-size: 12px;
+        margin-top: 2px;
+        color: #6b7280;
+      }
+      .card-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+      .row { display: flex; gap: 8px; flex-wrap: wrap; }
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        padding: 2px 8px;
+        border: 1px solid #d1d5db;
+        border-radius: 999px;
+        font-size: 11px;
+        color: #475569;
+        background: #f8fafc;
+      }
+      .type-switch {
+        display: flex;
+        gap: 6px;
+        background: #eef2ff;
+        border: 1px solid #c7d2fe;
+        border-radius: 12px;
+        padding: 4px;
+        margin-bottom: 10px;
+      }
+      .lookup-type-btn {
+        flex: 1;
+        border: none;
+        background: transparent;
+        border-radius: 8px;
+        padding: 6px 8px;
+        font-size: 12px;
+        font-weight: 600;
+        color: #4338ca;
+        cursor: pointer;
+      }
+      .lookup-type-btn.active {
+        background: #4338ca;
+        color: #fff;
+      }
+      .lookup-type-btn:hover { background: rgba(99, 102, 241, 0.14); }
+      .control-grid {
+        display: grid;
+        grid-template-columns: 1fr 70px;
+        gap: 8px;
+      }
+      .action-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+        margin-top: 8px;
+      }
+      select,
+      input {
+        width: 100%;
+        padding: 8px 10px;
+        font-size: 13px;
+        border-radius: 10px;
+        border: 1px solid #d1d5db;
+        background: #fff;
+        color: #111827;
+      }
+      .btn {
+        padding: 8px 10px;
+        border-radius: 10px;
+        border: none;
+        font-weight: 600;
+        cursor: pointer;
+        font-size: 13px;
+      }
+      .btn.primary { background: #4f46e5; color: #fff; }
+      .btn.primary:hover { background: #4338ca; }
+      .btn.secondary { background: #f3f4f6; color: #111827; border: 1px solid #e5e7eb; }
+      .btn.secondary:hover { background: #e5e7eb; }
+      .btn.ghost { background: #f9fafb; color: #1f2937; border: 1px solid #e5e7eb; }
+      .btn.ghost:hover { background: #eef2ff; }
+      .btn.small { font-size: 12px; padding: 6px 8px; border-radius: 8px; }
+      .btn:disabled { opacity: 0.55; cursor: not-allowed; }
+      .status {
+        font-size: 12px;
+        margin-top: 8px;
+        min-height: 16px;
+        color: #6b7280;
+      }
+      .status.ok { color: #047857; }
+      .status.bad { color: #dc2626; }
+      .status.warn { color: #b45309; }
+      .summary-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 12px;
+      }
+      .summary-column {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 12px;
+        border-radius: 12px;
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+      }
+      .hidden { display: none !important; }
+      .column-title { font-weight: 600; font-size: 14px; color: #1f2937; }
+      .column-meta { font-size: 12px; color: #6b7280; }
+      .id-list { display: flex; flex-direction: column; gap: 8px; }
+      .placeholder {
+        padding: 14px;
+        border-radius: 12px;
+        background: #f1f5f9;
+        border: 1px dashed #cbd5f5;
+        font-size: 12px;
+        text-align: center;
+        color: #64748b;
+      }
+      .id-row {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        gap: 8px;
+        align-items: center;
+        padding: 8px 10px;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        background: #ffffff;
+      }
+      .id-label {
+        font-size: 11px;
+        font-weight: 700;
+        color: #475569;
+        text-transform: uppercase;
+      }
+      .id-value {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12px;
+        padding: 4px 6px;
+        border-radius: 6px;
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        min-height: 20px;
+        display: flex;
+        align-items: center;
+        word-break: break-all;
+      }
+      .comparison-note {
+        grid-column: 1 / -1;
+        font-size: 11px;
+        color: #475569;
+      }
+      .summary-rows {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .summary-row {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 6px 8px;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        background: #f8fafc;
+      }
+      .summary-label {
+        font-size: 11px;
+        font-weight: 600;
+        color: #475569;
+        text-transform: uppercase;
+      }
+      .summary-value {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12px;
+        color: #111827;
+        word-break: break-all;
+      }
+      .dialog {
+        width: min(760px, 90vw);
+        border: 1px solid #d4daea;
+        border-radius: 18px;
+        padding: 0;
+        overflow: hidden;
+      }
+      .dialog::backdrop { background: rgba(11, 18, 38, 0.5); }
+      .dialog-head {
+        border-bottom: 1px solid #d4daea;
+        padding: 12px 14px;
+        background: #eef3ff;
+      }
+      .dialog-body {
+        padding: 12px 14px 14px;
+        background: #101a31;
+      }
+      .dialog-foot {
+        padding: 12px 14px;
+        border-top: 1px solid #d4daea;
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+      .mono-box {
+        margin: 0;
+        background: #0f172b;
+        color: #e9f0ff;
+        border-radius: 10px;
+        padding: 12px;
+        max-height: 60vh;
+        overflow: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font: 12px/1.42 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
     </style>
   </head>
   <body>
-    <div class="app">
-      <section class="panel title-panel">
-        <div class="panel-body">
-          <div class="header">
-            <div>
-              <h1 class="title">Shopify Admin Inspector</h1>
-              <p class="subtle">Search records and inspect full payload details.</p>
-            </div>
-            <button class="link-btn" id="openOptions" type="button">Options</button>
-          </div>
-          <div class="row" style="margin-top: 10px;">
-            <span class="pill" id="storePill">store: -</span>
-            <span class="pill" id="verPill">api: -</span>
-            <button class="btn btn-ghost" id="ping" type="button" style="margin-left: auto;">Test</button>
-          </div>
+    <div class="card">
+      <div class="card-header">
+        <div>
+          <div class="card-title">Shopify Lookup</div>
+          <div class="card-subtitle">Look up items, orders, customers, and webhooks.</div>
         </div>
-      </section>
+        <div class="card-actions">
+          <button class="btn secondary small" id="openOptions" type="button">Options</button>
+          <button class="btn secondary small" id="ping" type="button">Test</button>
+        </div>
+      </div>
 
-      <section class="panel">
-        <div class="panel-body">
-          <div class="segment" role="tablist" aria-label="Entity selector">
-            <button class="segment-btn active" id="entityOrders" type="button">Orders</button>
-            <button class="segment-btn" id="entityCustomers" type="button">Customers</button>
-            <button class="segment-btn" id="entityProducts" type="button">Products</button>
-            <button class="segment-btn" id="entityWebhooks" type="button">Webhooks</button>
-          </div>
-          <div class="search-row" style="margin-top: 10px;">
-            <input class="input" id="searchTerm" placeholder='Search by #order, email/name, title or numeric ID' />
-            <select class="input select" id="searchLimit" aria-label="result limit">
-              <option value="5">5</option>
-              <option value="10" selected>10</option>
-              <option value="20">20</option>
-            </select>
-            <button class="btn btn-primary" id="runSearch" type="button">Search</button>
-          </div>
-          <p class="status" id="searchStatus">Search to avoid broad API listings.</p>
-        </div>
-      </section>
+      <div class="row" style="margin-bottom:10px;">
+        <span class="pill" id="storePill">store: -</span>
+        <span class="pill" id="verPill">api: -</span>
+      </div>
 
-      <section class="panel">
-        <div class="panel-body">
-          <div class="header" style="margin-bottom: 8px;">
-            <h2 class="title" style="font-size: 15px;">Results</h2>
-            <span class="pill" id="resultCount">0 records</span>
-          </div>
-          <div id="results" class="results-list"></div>
-        </div>
-      </section>
+      <div class="type-switch" role="tablist" aria-label="Lookup type">
+        <button class="lookup-type-btn active" id="typeItem" data-type="item" aria-pressed="true">Item</button>
+        <button class="lookup-type-btn" id="typeOrder" data-type="order" aria-pressed="false">Order</button>
+        <button class="lookup-type-btn" id="typeCustomer" data-type="customer" aria-pressed="false">Customer</button>
+        <button class="lookup-type-btn" id="typeHooks" data-type="hooks" aria-pressed="false">Hooks</button>
+      </div>
 
-      <section class="panel">
-        <div class="panel-body">
-          <div class="header">
-            <div>
-              <h2 class="title" id="detailTitle" style="font-size: 15px;">Detail</h2>
-              <p class="subtle" id="detailMeta">Select a record to load full detail.</p>
-            </div>
-            <div class="tools">
-              <button class="btn btn-ghost" id="viewPayload" type="button" disabled>View payload</button>
-              <button class="btn btn-ghost" id="downloadPayload" type="button" disabled>Download payload</button>
-            </div>
-          </div>
-          <div class="detail-grid" id="detailGrid" style="margin-top: 10px;"></div>
-        </div>
-      </section>
+      <div class="control-grid">
+        <input id="lookupInput" placeholder="SKU, title or numeric ID..." />
+        <select id="searchLimit" aria-label="Result limit">
+          <option value="10" selected>10</option>
+          <option value="20">20</option>
+          <option value="50">50</option>
+        </select>
+      </div>
 
-      <section class="panel">
-        <div class="panel-body">
-          <p class="subtle" id="payloadInfo">Detail payload preview</p>
-          <pre class="mono-box" id="out">Run a search and open a record detail.</pre>
+      <div class="action-grid">
+        <button class="btn primary" id="lookup" type="button">Look up</button>
+        <button class="btn secondary" id="viewPayload" type="button" disabled>View payload</button>
+        <button class="btn secondary" id="downloadPayload" type="button" disabled>Download JSON</button>
+      </div>
+
+      <div id="status" class="status">Ready.</div>
+    </div>
+
+    <div class="card" id="idSummaryCard">
+      <div class="card-header">
+        <div>
+          <div class="card-title">ID Summary</div>
+          <div class="card-subtitle" id="summaryMeta">Run a lookup to list records.</div>
         </div>
-      </section>
+      </div>
+      <div class="summary-grid" id="summaryGrid">
+        <div class="summary-column" id="itemSummarySection">
+          <div class="column-header">
+            <div class="column-title">Item</div>
+            <div class="column-meta" id="itemMeta">Waiting for lookup.</div>
+          </div>
+          <div class="id-list" id="itemSummary">
+            <div class="placeholder">No items loaded.</div>
+          </div>
+        </div>
+        <div class="summary-column hidden" id="orderSummarySection">
+          <div class="column-header">
+            <div class="column-title">Order</div>
+            <div class="column-meta" id="orderMeta">Waiting for lookup.</div>
+          </div>
+          <div class="id-list" id="orderSummary">
+            <div class="placeholder">No orders loaded.</div>
+          </div>
+        </div>
+        <div class="summary-column hidden" id="customerSummarySection">
+          <div class="column-header">
+            <div class="column-title">Customer</div>
+            <div class="column-meta" id="customerMeta">Waiting for lookup.</div>
+          </div>
+          <div class="id-list" id="customerSummary">
+            <div class="placeholder">No customers loaded.</div>
+          </div>
+        </div>
+        <div class="summary-column hidden" id="hooksSection">
+          <div class="column-header">
+            <div class="column-title">Hooks</div>
+            <div class="column-meta" id="hooksMeta">Click look up to load all webhooks.</div>
+          </div>
+          <div class="id-list" id="hooksList">
+            <div class="placeholder">No hooks loaded.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="shopifyResultCard">
+      <div class="card-header">
+        <div>
+          <div class="card-title" id="shopifyResultTitle">Shopify Result</div>
+          <div class="card-subtitle" id="shopifyResultMeta">Select a record to view detail summary.</div>
+        </div>
+      </div>
+      <div id="resultSummary" class="summary-rows">
+        <div class="placeholder">No detail selected.</div>
+      </div>
     </div>
 
     <dialog class="dialog" id="payloadDialog">
       <div class="dialog-head">
-        <h2 class="title" style="font-size: 15px; margin-bottom: 0;">Payload JSON</h2>
+        <h2 style="font-size: 15px; margin-bottom: 0;">Payload JSON</h2>
       </div>
       <div class="dialog-body">
         <pre class="mono-box" id="dialogOut" style="max-height: 60vh; min-height: 240px; margin: 0;"></pre>
       </div>
       <div class="dialog-foot">
-        <button class="btn btn-ghost" id="dialogClose" type="button">Close</button>
-        <button class="btn btn-primary" id="dialogDownload" type="button">Download JSON</button>
+        <button class="btn ghost" id="dialogClose" type="button">Close</button>
+        <button class="btn primary" id="dialogDownload" type="button">Download JSON</button>
       </div>
     </dialog>
 

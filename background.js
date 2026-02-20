@@ -6,7 +6,7 @@ const MAX_SEARCH_LIMIT = 25;
 const DEFAULT_SEARCH_LIMIT = 10;
 const MAX_LIST_LIMIT = 250;
 const DEFAULT_LIST_LIMIT = 50;
-const SEARCH_SCAN_LIMIT = 250;
+const SEARCH_SCAN_LIMIT = 500;
 
 async function getActiveStore() {
   const { activeStoreId, stores } = await chrome.storage.local.get(["activeStoreId", "stores"]);
@@ -116,15 +116,27 @@ function isProductMatch(product, term) {
 }
 
 async function listAllWebhooks() {
+  const all = await collectPaginatedList("webhooks.json", "webhooks", { maxTotal: Number.MAX_SAFE_INTEGER });
+  return { webhooks: all };
+}
+
+async function collectPaginatedList(path, listKey, { params = {}, maxTotal = SEARCH_SCAN_LIMIT } = {}) {
   let sinceId = null;
   const all = [];
 
-  while (true) {
-    const query = new URLSearchParams({ limit: String(MAX_LIST_LIMIT) });
+  while (all.length < maxTotal) {
+    const query = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== "") {
+        query.set(key, String(value));
+      }
+    });
+    query.set("limit", String(MAX_LIST_LIMIT));
     if (sinceId) query.set("since_id", String(sinceId));
 
-    const data = await shopifyRequest(`webhooks.json?${query.toString()}`);
-    const items = Array.isArray(data?.webhooks) ? data.webhooks : [];
+    const url = `${path}?${query.toString()}`;
+    const data = await shopifyRequest(url);
+    const items = Array.isArray(data?.[listKey]) ? data[listKey] : [];
     all.push(...items);
 
     if (items.length < MAX_LIST_LIMIT) break;
@@ -133,7 +145,7 @@ async function listAllWebhooks() {
     sinceId = last.id;
   }
 
-  return { webhooks: all };
+  return all.slice(0, maxTotal);
 }
 
 async function searchOrders(term, limit) {
@@ -153,10 +165,19 @@ async function searchOrders(term, limit) {
   if (Array.isArray(byRawName?.orders) && byRawName.orders.length > 0) return byRawName;
 
   const scan = await shopifyRequest(
-    `orders.json?status=any&limit=${encodeURIComponent(SEARCH_SCAN_LIMIT)}`
+    `orders.json?status=any&limit=${encodeURIComponent(limit)}`
   );
-  const list = Array.isArray(scan?.orders) ? scan.orders : [];
-  return { orders: list.filter(order => isOrderMatch(order, term)).slice(0, limit) };
+  const directList = Array.isArray(scan?.orders) ? scan.orders : [];
+  if (directList.length > 0) {
+    const filtered = directList.filter(order => isOrderMatch(order, term)).slice(0, limit);
+    if (filtered.length > 0) return { orders: filtered };
+  }
+
+  const pagedList = await collectPaginatedList("orders.json", "orders", {
+    params: { status: "any" },
+    maxTotal: SEARCH_SCAN_LIMIT
+  });
+  return { orders: pagedList.filter(order => isOrderMatch(order, term)).slice(0, limit) };
 }
 
 async function searchCustomers(term, limit) {
@@ -170,11 +191,19 @@ async function searchCustomers(term, limit) {
   );
   if (Array.isArray(bySearch?.customers) && bySearch.customers.length > 0) return bySearch;
 
-  const scan = await shopifyRequest(
-    `customers.json?limit=${encodeURIComponent(SEARCH_SCAN_LIMIT)}`
+  const directScan = await shopifyRequest(
+    `customers.json?limit=${encodeURIComponent(limit)}`
   );
-  const list = Array.isArray(scan?.customers) ? scan.customers : [];
-  return { customers: list.filter(customer => isCustomerMatch(customer, term)).slice(0, limit) };
+  const directList = Array.isArray(directScan?.customers) ? directScan.customers : [];
+  if (directList.length > 0) {
+    const filtered = directList.filter(customer => isCustomerMatch(customer, term)).slice(0, limit);
+    if (filtered.length > 0) return { customers: filtered };
+  }
+
+  const pagedList = await collectPaginatedList("customers.json", "customers", {
+    maxTotal: SEARCH_SCAN_LIMIT
+  });
+  return { customers: pagedList.filter(customer => isCustomerMatch(customer, term)).slice(0, limit) };
 }
 
 async function searchProducts(term, limit) {
@@ -189,11 +218,14 @@ async function searchProducts(term, limit) {
   if (Array.isArray(byTitle?.products) && byTitle.products.length > 0) return byTitle;
 
   const variantScan = await shopifyRequest(
-    `variants.json?limit=${encodeURIComponent(SEARCH_SCAN_LIMIT)}`
+    `variants.json?limit=${encodeURIComponent(MAX_LIST_LIMIT)}`
   );
   const variants = Array.isArray(variantScan?.variants) ? variantScan.variants : [];
+  const pagedVariants = variants.length >= MAX_LIST_LIMIT
+    ? await collectPaginatedList("variants.json", "variants", { maxTotal: SEARCH_SCAN_LIMIT })
+    : variants;
   const ids = [...new Set(
-    variants
+    pagedVariants
       .filter(variant => includesIgnoreCase(variant?.sku, term))
       .map(variant => variant?.product_id)
       .filter(Boolean)
@@ -206,11 +238,19 @@ async function searchProducts(term, limit) {
     if (Array.isArray(byIds?.products) && byIds.products.length > 0) return byIds;
   }
 
-  const scan = await shopifyRequest(
-    `products.json?limit=${encodeURIComponent(SEARCH_SCAN_LIMIT)}`
+  const directScan = await shopifyRequest(
+    `products.json?limit=${encodeURIComponent(MAX_LIST_LIMIT)}`
   );
-  const list = Array.isArray(scan?.products) ? scan.products : [];
-  return { products: list.filter(product => isProductMatch(product, term)).slice(0, limit) };
+  const directList = Array.isArray(directScan?.products) ? directScan.products : [];
+  if (directList.length > 0) {
+    const filtered = directList.filter(product => isProductMatch(product, term)).slice(0, limit);
+    if (filtered.length > 0) return { products: filtered };
+  }
+
+  const pagedList = await collectPaginatedList("products.json", "products", {
+    maxTotal: SEARCH_SCAN_LIMIT
+  });
+  return { products: pagedList.filter(product => isProductMatch(product, term)).slice(0, limit) };
 }
 
 function webhookMatchesTerm(webhook, term) {
@@ -238,8 +278,7 @@ async function searchWebhooks(term, limit) {
     return { webhooks: detail?.webhook ? [detail.webhook] : [] };
   }
 
-  const data = await shopifyRequest(`webhooks.json?limit=${encodeURIComponent(MAX_LIST_LIMIT)}`);
-  const list = Array.isArray(data?.webhooks) ? data.webhooks : [];
+  const list = await collectPaginatedList("webhooks.json", "webhooks", { maxTotal: SEARCH_SCAN_LIMIT });
   return { webhooks: list.filter(item => webhookMatchesTerm(item, term)).slice(0, limit) };
 }
 
