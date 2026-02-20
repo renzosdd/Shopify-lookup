@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "Shopify Admin Inspector",
+  "version": "0.1.0",
+  "description": "Chrome extension to query Shopify Admin API (webhooks, orders, customers, products) without Postman.",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "https://*.myshopify.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "options_page": "options.html"
+}

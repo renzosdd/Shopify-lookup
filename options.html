@@ -1,0 +1,62 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Shopify Admin Inspector - Options</title>
+    <style>
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; margin: 18px; max-width: 900px; }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      input { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 10px; }
+      button { padding: 10px 12px; cursor: pointer; border: 1px solid #ddd; background: #fff; border-radius: 10px; }
+      button:hover { background: #f6f6f6; }
+      .card { border: 1px solid #eee; border-radius: 14px; padding: 14px; box-shadow: 0 1px 2px rgba(0,0,0,0.04); margin-top: 16px; }
+      .muted { color: #666; font-size: 13px; }
+      ul { padding-left: 16px; }
+      li { margin: 10px 0; }
+      code { background: #f6f6f6; padding: 2px 6px; border-radius: 6px; }
+      .row { display:flex; gap: 8px; align-items:center; flex-wrap: wrap; }
+      .pill { display: inline-block; padding: 2px 8px; border: 1px solid #ddd; border-radius: 999px; font-size: 12px; }
+    </style>
+  </head>
+  <body>
+    <h2>Stores</h2>
+    <p class="muted">
+      Agregá tu tienda (<code>mi-tienda.myshopify.com</code>) y el <b>Admin API access token</b> de una Custom App.
+      La extensión consulta directo a Shopify (sin backend).
+    </p>
+
+    <div class="card">
+      <h3>Agregar store</h3>
+      <div class="grid">
+        <div>
+          <label>Nombre</label>
+          <input id="name" placeholder="Ej: US Store" />
+        </div>
+        <div>
+          <label>Shop domain</label>
+          <input id="domain" placeholder="mi-tienda.myshopify.com" />
+        </div>
+        <div>
+          <label>Admin API access token</label>
+          <input id="token" placeholder="shpat_..." />
+        </div>
+        <div>
+          <label>API Version</label>
+          <input id="version" placeholder="2025-01 (default)" />
+        </div>
+      </div>
+      <div class="row" style="margin-top:12px;">
+        <button id="add">Agregar</button>
+        <span class="muted">Tip: asegurate de dar scopes <code>read_orders</code>, <code>read_customers</code>, <code>read_products</code>, <code>read_webhooks</code>.</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Listado</h3>
+      <div class="muted" id="status"></div>
+      <ul id="list"></ul>
+    </div>
+
+    <script type="module" src="options.js"></script>
+  </body>
+</html>
