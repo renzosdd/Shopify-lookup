@@ -26,6 +26,13 @@ Extensión Chrome (Manifest V3) para consultar Shopify Admin API **sin backend**
 Abrí el popup:
 - **Test**: valida token consultando `shop.json`
 - **Webhooks / Orders / Customers / Products**: lista items y muestra JSON
+- **View payload**: abre el JSON completo en un modal dedicado
+- **Download payload**: descarga el último payload como archivo `.json`
+
+## UI / UX
+- Popup y Options con componentes estilo Material (cards, chips, botones tonales, elevación, estados)
+- Mejor jerarquía visual y feedback de carga en acciones del popup
+- Validación de dominio y duplicados al guardar stores en Options
 
 ## Notas de seguridad
 Sin backend, el token queda guardado localmente en tu navegador (`chrome.storage.local`). Usalo para entornos internos.
