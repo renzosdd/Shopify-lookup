@@ -2,6 +2,11 @@
 // Stores are configured in Options page (shopDomain + Admin API access token).
 
 const DEFAULT_API_VERSION = "2025-01";
+const MAX_SEARCH_LIMIT = 25;
+const DEFAULT_SEARCH_LIMIT = 10;
+const MAX_LIST_LIMIT = 250;
+const DEFAULT_LIST_LIMIT = 50;
+const SEARCH_SCAN_LIMIT = 250;
 
 async function getActiveStore() {
   const { activeStoreId, stores } = await chrome.storage.local.get(["activeStoreId", "stores"]);
@@ -36,36 +41,298 @@ async function shopifyRequest(path, { method = "GET", body } = {}) {
   return json;
 }
 
+function toStoreMeta(store) {
+  return {
+    name: store.name,
+    shopDomain: store.shopDomain,
+    apiVersion: store.apiVersion
+  };
+}
+
+function clampLimit(limit) {
+  const value = Number(limit);
+  if (!Number.isFinite(value)) return DEFAULT_SEARCH_LIMIT;
+  return Math.min(MAX_SEARCH_LIMIT, Math.max(1, Math.trunc(value)));
+}
+
+function clampListLimit(limit) {
+  const value = Number(limit);
+  if (!Number.isFinite(value)) return DEFAULT_LIST_LIMIT;
+  return Math.min(MAX_LIST_LIMIT, Math.max(1, Math.trunc(value)));
+}
+
+function normalizeTerm(term) {
+  return String(term ?? "").trim();
+}
+
+function isNumericId(value) {
+  return /^\d+$/.test(value);
+}
+
+function cleanOrderName(term) {
+  return term.startsWith("#") ? term : `#${term}`;
+}
+
+function includesIgnoreCase(value, needle) {
+  return String(value ?? "").toLowerCase().includes(String(needle ?? "").toLowerCase());
+}
+
+function isOrderMatch(order, term) {
+  return [
+    order?.id,
+    order?.name,
+    order?.email,
+    order?.customer?.email,
+    order?.customer?.first_name,
+    order?.customer?.last_name,
+    order?.customer?.phone,
+    order?.order_number
+  ].some(value => includesIgnoreCase(value, term));
+}
+
+function isCustomerMatch(customer, term) {
+  return [
+    customer?.id,
+    customer?.email,
+    customer?.phone,
+    customer?.first_name,
+    customer?.last_name
+  ].some(value => includesIgnoreCase(value, term));
+}
+
+function isProductMatch(product, term) {
+  if ([
+    product?.id,
+    product?.title,
+    product?.vendor,
+    product?.handle,
+    product?.product_type
+  ].some(value => includesIgnoreCase(value, term))) {
+    return true;
+  }
+
+  const variants = Array.isArray(product?.variants) ? product.variants : [];
+  return variants.some(variant => includesIgnoreCase(variant?.sku, term));
+}
+
+async function listAllWebhooks() {
+  let sinceId = null;
+  const all = [];
+
+  while (true) {
+    const query = new URLSearchParams({ limit: String(MAX_LIST_LIMIT) });
+    if (sinceId) query.set("since_id", String(sinceId));
+
+    const data = await shopifyRequest(`webhooks.json?${query.toString()}`);
+    const items = Array.isArray(data?.webhooks) ? data.webhooks : [];
+    all.push(...items);
+
+    if (items.length < MAX_LIST_LIMIT) break;
+    const last = items[items.length - 1];
+    if (!last?.id) break;
+    sinceId = last.id;
+  }
+
+  return { webhooks: all };
+}
+
+async function searchOrders(term, limit) {
+  if (isNumericId(term)) {
+    const detail = await shopifyRequest(`orders/${encodeURIComponent(term)}.json?status=any`);
+    return { orders: detail?.order ? [detail.order] : [] };
+  }
+
+  const byName = await shopifyRequest(
+    `orders.json?status=any&name=${encodeURIComponent(cleanOrderName(term))}&limit=${encodeURIComponent(limit)}`
+  );
+  if (Array.isArray(byName?.orders) && byName.orders.length > 0) return byName;
+
+  const byRawName = await shopifyRequest(
+    `orders.json?status=any&name=${encodeURIComponent(term)}&limit=${encodeURIComponent(limit)}`
+  );
+  if (Array.isArray(byRawName?.orders) && byRawName.orders.length > 0) return byRawName;
+
+  const scan = await shopifyRequest(
+    `orders.json?status=any&limit=${encodeURIComponent(SEARCH_SCAN_LIMIT)}`
+  );
+  const list = Array.isArray(scan?.orders) ? scan.orders : [];
+  return { orders: list.filter(order => isOrderMatch(order, term)).slice(0, limit) };
+}
+
+async function searchCustomers(term, limit) {
+  if (isNumericId(term)) {
+    const detail = await shopifyRequest(`customers/${encodeURIComponent(term)}.json`);
+    return { customers: detail?.customer ? [detail.customer] : [] };
+  }
+
+  const bySearch = await shopifyRequest(
+    `customers/search.json?query=${encodeURIComponent(term)}&limit=${encodeURIComponent(limit)}`
+  );
+  if (Array.isArray(bySearch?.customers) && bySearch.customers.length > 0) return bySearch;
+
+  const scan = await shopifyRequest(
+    `customers.json?limit=${encodeURIComponent(SEARCH_SCAN_LIMIT)}`
+  );
+  const list = Array.isArray(scan?.customers) ? scan.customers : [];
+  return { customers: list.filter(customer => isCustomerMatch(customer, term)).slice(0, limit) };
+}
+
+async function searchProducts(term, limit) {
+  if (isNumericId(term)) {
+    const detail = await shopifyRequest(`products/${encodeURIComponent(term)}.json`);
+    return { products: detail?.product ? [detail.product] : [] };
+  }
+
+  const byTitle = await shopifyRequest(
+    `products.json?title=${encodeURIComponent(term)}&limit=${encodeURIComponent(limit)}`
+  );
+  if (Array.isArray(byTitle?.products) && byTitle.products.length > 0) return byTitle;
+
+  const variantScan = await shopifyRequest(
+    `variants.json?limit=${encodeURIComponent(SEARCH_SCAN_LIMIT)}`
+  );
+  const variants = Array.isArray(variantScan?.variants) ? variantScan.variants : [];
+  const ids = [...new Set(
+    variants
+      .filter(variant => includesIgnoreCase(variant?.sku, term))
+      .map(variant => variant?.product_id)
+      .filter(Boolean)
+  )];
+  if (ids.length > 0) {
+    const idSlice = ids.slice(0, limit).join(",");
+    const byIds = await shopifyRequest(
+      `products.json?ids=${encodeURIComponent(idSlice)}&limit=${encodeURIComponent(limit)}`
+    );
+    if (Array.isArray(byIds?.products) && byIds.products.length > 0) return byIds;
+  }
+
+  const scan = await shopifyRequest(
+    `products.json?limit=${encodeURIComponent(SEARCH_SCAN_LIMIT)}`
+  );
+  const list = Array.isArray(scan?.products) ? scan.products : [];
+  return { products: list.filter(product => isProductMatch(product, term)).slice(0, limit) };
+}
+
+function webhookMatchesTerm(webhook, term) {
+  const needle = term.toLowerCase();
+  const fields = [
+    webhook?.id,
+    webhook?.topic,
+    webhook?.address,
+    webhook?.format,
+    webhook?.api_version
+  ]
+    .filter(Boolean)
+    .map(v => String(v).toLowerCase());
+
+  return fields.some(value => value.includes(needle));
+}
+
+async function searchWebhooks(term, limit) {
+  if (!term) {
+    return listAllWebhooks();
+  }
+
+  if (isNumericId(term)) {
+    const detail = await shopifyRequest(`webhooks/${encodeURIComponent(term)}.json`);
+    return { webhooks: detail?.webhook ? [detail.webhook] : [] };
+  }
+
+  const data = await shopifyRequest(`webhooks.json?limit=${encodeURIComponent(MAX_LIST_LIMIT)}`);
+  const list = Array.isArray(data?.webhooks) ? data.webhooks : [];
+  return { webhooks: list.filter(item => webhookMatchesTerm(item, term)).slice(0, limit) };
+}
+
+function requireTerm(term) {
+  if (!term) throw new Error("Ingresá un término de búsqueda.");
+  if (term.length < 2 && !isNumericId(term)) {
+    throw new Error("La búsqueda debe tener al menos 2 caracteres o un ID numérico.");
+  }
+}
+
 // Message router (UI -> background)
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
     try {
+      const store = await getActiveStore();
       switch (msg.type) {
         case "PING": {
-          const store = await getActiveStore();
           // Simple call to verify token/permissions
           const data = await shopifyRequest("shop.json");
-          return sendResponse({ ok: true, store: { name: store.name, shopDomain: store.shopDomain, apiVersion: store.apiVersion }, data });
+          return sendResponse({ ok: true, store: toStoreMeta(store), data });
         }
         case "LIST_WEBHOOKS": {
-          const data = await shopifyRequest("webhooks.json?limit=50");
-          return sendResponse({ ok: true, data });
+          const data = msg.all
+            ? await listAllWebhooks()
+            : await shopifyRequest(`webhooks.json?limit=${encodeURIComponent(clampListLimit(msg.limit))}`);
+          return sendResponse({ ok: true, store: toStoreMeta(store), data });
         }
         case "LIST_ORDERS": {
           const status = msg.status ?? "any";
-          const limit = msg.limit ?? 50;
-          const data = await shopifyRequest(`orders.json?status=${encodeURIComponent(status)}&limit=${limit}`);
-          return sendResponse({ ok: true, data });
+          const limit = clampListLimit(msg.limit);
+          const data = await shopifyRequest(`orders.json?status=${encodeURIComponent(status)}&limit=${encodeURIComponent(limit)}`);
+          return sendResponse({ ok: true, store: toStoreMeta(store), data });
         }
         case "LIST_CUSTOMERS": {
-          const limit = msg.limit ?? 50;
-          const data = await shopifyRequest(`customers.json?limit=${limit}`);
-          return sendResponse({ ok: true, data });
+          const limit = clampListLimit(msg.limit);
+          const data = await shopifyRequest(`customers.json?limit=${encodeURIComponent(limit)}`);
+          return sendResponse({ ok: true, store: toStoreMeta(store), data });
         }
         case "LIST_PRODUCTS": {
-          const limit = msg.limit ?? 50;
-          const data = await shopifyRequest(`products.json?limit=${limit}`);
-          return sendResponse({ ok: true, data });
+          const limit = clampListLimit(msg.limit);
+          const data = await shopifyRequest(`products.json?limit=${encodeURIComponent(limit)}`);
+          return sendResponse({ ok: true, store: toStoreMeta(store), data });
+        }
+        case "SEARCH_ORDERS": {
+          const term = normalizeTerm(msg.term);
+          requireTerm(term);
+          const limit = clampLimit(msg.limit);
+          const data = await searchOrders(term, limit);
+          return sendResponse({ ok: true, store: toStoreMeta(store), data });
+        }
+        case "SEARCH_CUSTOMERS": {
+          const term = normalizeTerm(msg.term);
+          requireTerm(term);
+          const limit = clampLimit(msg.limit);
+          const data = await searchCustomers(term, limit);
+          return sendResponse({ ok: true, store: toStoreMeta(store), data });
+        }
+        case "SEARCH_PRODUCTS": {
+          const term = normalizeTerm(msg.term);
+          requireTerm(term);
+          const limit = clampLimit(msg.limit);
+          const data = await searchProducts(term, limit);
+          return sendResponse({ ok: true, store: toStoreMeta(store), data });
+        }
+        case "SEARCH_WEBHOOKS": {
+          const term = normalizeTerm(msg.term);
+          const limit = clampLimit(msg.limit);
+          const data = await searchWebhooks(term, limit);
+          return sendResponse({ ok: true, store: toStoreMeta(store), data });
+        }
+        case "GET_ORDER_DETAIL": {
+          const id = normalizeTerm(msg.id);
+          if (!isNumericId(id)) throw new Error("ID de orden inválido.");
+          const data = await shopifyRequest(`orders/${encodeURIComponent(id)}.json?status=any`);
+          return sendResponse({ ok: true, store: toStoreMeta(store), data });
+        }
+        case "GET_CUSTOMER_DETAIL": {
+          const id = normalizeTerm(msg.id);
+          if (!isNumericId(id)) throw new Error("ID de customer inválido.");
+          const data = await shopifyRequest(`customers/${encodeURIComponent(id)}.json`);
+          return sendResponse({ ok: true, store: toStoreMeta(store), data });
+        }
+        case "GET_PRODUCT_DETAIL": {
+          const id = normalizeTerm(msg.id);
+          if (!isNumericId(id)) throw new Error("ID de product inválido.");
+          const data = await shopifyRequest(`products/${encodeURIComponent(id)}.json`);
+          return sendResponse({ ok: true, store: toStoreMeta(store), data });
+        }
+        case "GET_WEBHOOK_DETAIL": {
+          const id = normalizeTerm(msg.id);
+          if (!isNumericId(id)) throw new Error("ID de webhook inválido.");
+          const data = await shopifyRequest(`webhooks/${encodeURIComponent(id)}.json`);
+          return sendResponse({ ok: true, store: toStoreMeta(store), data });
         }
         default:
           return sendResponse({ ok: false, error: "Tipo de mensaje no soportado" });

@@ -25,13 +25,16 @@ Extensión Chrome (Manifest V3) para consultar Shopify Admin API **sin backend**
 ## Uso
 Abrí el popup:
 - **Test**: valida token consultando `shop.json`
-- **Webhooks / Orders / Customers / Products**: lista items y muestra JSON
-- **View payload**: abre el JSON completo en un modal dedicado
+- **Orders / Customers / Products**: buscá por término o ID (sin listar masivamente)
+- **Webhooks**: carga completa sin búsqueda (y admite filtro opcional)
+- **View detail**: carga el detalle completo del registro seleccionado
+- **View payload**: abre el JSON completo (search o detail) en un modal
 - **Download payload**: descarga el último payload como archivo `.json`
 
 ## UI / UX
 - Popup y Options con componentes estilo Material (cards, chips, botones tonales, elevación, estados)
-- Mejor jerarquía visual y feedback de carga en acciones del popup
+- Flujo orientado a búsqueda acotada para uso responsable de la API
+- Vista de detalle por registro con resumen visual + payload completo
 - Validación de dominio y duplicados al guardar stores en Options
 
 ## Notas de seguridad

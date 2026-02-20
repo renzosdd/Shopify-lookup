@@ -146,6 +146,44 @@ body {
   gap: 8px;
 }
 
+.segment {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border: 1px solid var(--md-outline);
+  border-radius: 12px;
+  overflow: hidden;
+  background: #f8faff;
+}
+
+.segment-btn {
+  border: 0;
+  border-right: 1px solid var(--md-outline);
+  background: transparent;
+  color: var(--md-text-muted);
+  font-weight: 600;
+  height: 36px;
+  cursor: pointer;
+}
+
+.segment-btn:last-child {
+  border-right: 0;
+}
+
+.segment-btn.active {
+  background: #dce7ff;
+  color: var(--md-primary-strong);
+}
+
+.search-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 72px auto;
+  gap: 8px;
+}
+
+.select {
+  padding-right: 8px;
+}
+
 .tools {
   display: flex;
   gap: 8px;
@@ -242,6 +280,76 @@ body {
   padding: 10px;
 }
 
+.results-list {
+  display: grid;
+  gap: 8px;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.result-card {
+  border: 1px solid var(--md-outline);
+  border-radius: 12px;
+  background: #fbfcff;
+  padding: 10px;
+}
+
+.result-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.result-meta {
+  margin-top: 3px;
+  color: var(--md-text-muted);
+  font-size: 12px;
+}
+
+.result-actions {
+  margin-top: 8px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.empty-state {
+  border: 1px dashed #c4d0ef;
+  border-radius: 12px;
+  color: var(--md-text-muted);
+  text-align: center;
+  padding: 14px;
+  font-size: 12px;
+  background: #f9fbff;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.kv {
+  border: 1px solid var(--md-outline);
+  border-radius: 10px;
+  padding: 8px 9px;
+  background: #f8faff;
+}
+
+.kv-label {
+  display: block;
+  color: var(--md-text-muted);
+  font-size: 11px;
+  margin-bottom: 2px;
+}
+
+.kv-value {
+  display: block;
+  color: var(--md-text);
+  font-size: 12px;
+  font-weight: 550;
+  word-break: break-word;
+}
+
 .store-meta {
   color: var(--md-text-muted);
   font-size: 12px;
@@ -292,6 +400,14 @@ body {
 
 @media (max-width: 560px) {
   .field-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .search-row {
     grid-template-columns: 1fr;
   }
 }

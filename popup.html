@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="stylesheet" href="styles.css" />
     <style>
-      body { width: 410px; min-height: 520px; }
+      body { width: 430px; min-height: 560px; }
       .title-panel { background: linear-gradient(120deg, #ffffff, #f4f8ff); }
     </style>
   </head>
@@ -17,37 +17,69 @@
           <div class="header">
             <div>
               <h1 class="title">Shopify Admin Inspector</h1>
-              <p class="subtle">Inspect API resources and payloads quickly.</p>
+              <p class="subtle">Search records and inspect full payload details.</p>
             </div>
             <button class="link-btn" id="openOptions" type="button">Options</button>
           </div>
           <div class="row" style="margin-top: 10px;">
             <span class="pill" id="storePill">store: -</span>
             <span class="pill" id="verPill">api: -</span>
+            <button class="btn btn-ghost" id="ping" type="button" style="margin-left: auto;">Test</button>
           </div>
         </div>
       </section>
 
       <section class="panel">
         <div class="panel-body">
-          <div class="action-grid">
-            <button class="btn btn-primary" id="ping" type="button">Test</button>
-            <button class="btn btn-tonal" id="webhooks" type="button">Webhooks</button>
-            <button class="btn btn-tonal" id="orders" type="button">Orders</button>
-            <button class="btn btn-tonal" id="customers" type="button">Customers</button>
-            <button class="btn btn-tonal" id="products" type="button" style="grid-column: 1 / span 2;">Products</button>
+          <div class="segment" role="tablist" aria-label="Entity selector">
+            <button class="segment-btn active" id="entityOrders" type="button">Orders</button>
+            <button class="segment-btn" id="entityCustomers" type="button">Customers</button>
+            <button class="segment-btn" id="entityProducts" type="button">Products</button>
+            <button class="segment-btn" id="entityWebhooks" type="button">Webhooks</button>
           </div>
-          <div class="tools" style="margin-top: 10px;">
-            <button class="btn btn-ghost" id="viewPayload" type="button" disabled>View payload</button>
-            <button class="btn btn-ghost" id="downloadPayload" type="button" disabled>Download payload</button>
+          <div class="search-row" style="margin-top: 10px;">
+            <input class="input" id="searchTerm" placeholder='Search by #order, email/name, title or numeric ID' />
+            <select class="input select" id="searchLimit" aria-label="result limit">
+              <option value="5">5</option>
+              <option value="10" selected>10</option>
+              <option value="20">20</option>
+            </select>
+            <button class="btn btn-primary" id="runSearch" type="button">Search</button>
           </div>
+          <p class="status" id="searchStatus">Search to avoid broad API listings.</p>
         </div>
       </section>
 
       <section class="panel">
         <div class="panel-body">
-          <p class="subtle" id="payloadInfo">Payload preview</p>
-          <pre class="mono-box" id="out">Configure a store in Options and run "Test".</pre>
+          <div class="header" style="margin-bottom: 8px;">
+            <h2 class="title" style="font-size: 15px;">Results</h2>
+            <span class="pill" id="resultCount">0 records</span>
+          </div>
+          <div id="results" class="results-list"></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-body">
+          <div class="header">
+            <div>
+              <h2 class="title" id="detailTitle" style="font-size: 15px;">Detail</h2>
+              <p class="subtle" id="detailMeta">Select a record to load full detail.</p>
+            </div>
+            <div class="tools">
+              <button class="btn btn-ghost" id="viewPayload" type="button" disabled>View payload</button>
+              <button class="btn btn-ghost" id="downloadPayload" type="button" disabled>Download payload</button>
+            </div>
+          </div>
+          <div class="detail-grid" id="detailGrid" style="margin-top: 10px;"></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-body">
+          <p class="subtle" id="payloadInfo">Detail payload preview</p>
+          <pre class="mono-box" id="out">Run a search and open a record detail.</pre>
         </div>
       </section>
     </div>
