@@ -78,6 +78,70 @@ function includesIgnoreCase(value, needle) {
   return String(value ?? "").toLowerCase().includes(String(needle ?? "").toLowerCase());
 }
 
+function isNotFoundError(error) {
+  return String(error?.message || "").startsWith("Shopify 404:");
+}
+
+async function shopifyRequestOrNull(path, options = {}) {
+  try {
+    return await shopifyRequest(path, options);
+  } catch (error) {
+    if (isNotFoundError(error)) return null;
+    throw error;
+  }
+}
+
+function uniqueStringIds(values) {
+  return [...new Set((Array.isArray(values) ? values : [])
+    .filter(v => v !== null && v !== undefined && v !== "")
+    .map(v => String(v)))];
+}
+
+function applyVariantContextToProduct(product, variantIds) {
+  if (!product || typeof product !== "object") return product;
+  const safeIds = uniqueStringIds(variantIds);
+  if (!safeIds.length) return product;
+
+  const variants = Array.isArray(product?.variants) ? product.variants : [];
+  const filtered = variants.filter(variant => safeIds.includes(String(variant?.id)));
+
+  if (!filtered.length) {
+    return { ...product, lookupVariantIds: safeIds };
+  }
+  return {
+    ...product,
+    variants: filtered,
+    lookupVariantIds: safeIds
+  };
+}
+
+function getMatchingVariantIdsFromProduct(product, term) {
+  const variants = Array.isArray(product?.variants) ? product.variants : [];
+  if (!variants.length) return [];
+
+  const clean = String(term ?? "").trim();
+  if (!clean) return [];
+
+  const numeric = isNumericId(clean);
+  const lowered = clean.toLowerCase();
+
+  return uniqueStringIds(
+    variants
+      .filter((variant) => {
+        if (numeric && String(variant?.id) === clean) return true;
+        return includesIgnoreCase(variant?.sku, lowered);
+      })
+      .map(variant => variant?.id)
+  );
+}
+
+function variantMatchesTerm(variant, term) {
+  const clean = String(term ?? "").trim();
+  if (!clean) return false;
+  if (isNumericId(clean) && String(variant?.id) === clean) return true;
+  return includesIgnoreCase(variant?.sku, clean);
+}
+
 function isOrderMatch(order, term) {
   return [
     order?.id,
@@ -159,8 +223,10 @@ async function collectPaginatedList(path, listKey, { params = {}, maxTotal = SEA
 
 async function searchOrders(term, limit) {
   if (isNumericId(term)) {
-    const detail = await shopifyRequest(`orders/${encodeURIComponent(term)}.json?status=any`);
-    return { orders: detail?.order ? [detail.order] : [] };
+    const detail = await shopifyRequestOrNull(`orders/${encodeURIComponent(term)}.json?status=any`);
+    if (detail?.order) {
+      return { orders: [detail.order] };
+    }
   }
 
   const byName = await shopifyRequest(
@@ -191,8 +257,10 @@ async function searchOrders(term, limit) {
 
 async function searchCustomers(term, limit) {
   if (isNumericId(term)) {
-    const detail = await shopifyRequest(`customers/${encodeURIComponent(term)}.json`);
-    return { customers: detail?.customer ? [detail.customer] : [] };
+    const detail = await shopifyRequestOrNull(`customers/${encodeURIComponent(term)}.json`);
+    if (detail?.customer) {
+      return { customers: [detail.customer] };
+    }
   }
 
   const bySearch = await shopifyRequest(
@@ -217,14 +285,30 @@ async function searchCustomers(term, limit) {
 
 async function searchProducts(term, limit) {
   if (isNumericId(term)) {
-    const detail = await shopifyRequest(`products/${encodeURIComponent(term)}.json`);
-    return { products: detail?.product ? [detail.product] : [] };
+    const variantDetail = await shopifyRequestOrNull(`variants/${encodeURIComponent(term)}.json`);
+    if (variantDetail?.variant?.product_id) {
+      const productDetail = await shopifyRequestOrNull(`products/${encodeURIComponent(variantDetail.variant.product_id)}.json`);
+      if (productDetail?.product) {
+        return { products: [applyVariantContextToProduct(productDetail.product, [variantDetail.variant.id])] };
+      }
+    }
+
+    const productDetail = await shopifyRequestOrNull(`products/${encodeURIComponent(term)}.json`);
+    if (productDetail?.product) {
+      return { products: [productDetail.product] };
+    }
   }
 
   const byTitle = await shopifyRequest(
     `products.json?title=${encodeURIComponent(term)}&limit=${encodeURIComponent(limit)}`
   );
-  if (Array.isArray(byTitle?.products) && byTitle.products.length > 0) return byTitle;
+  if (Array.isArray(byTitle?.products) && byTitle.products.length > 0) {
+    const contextual = byTitle.products.map(product => {
+      const matchedVariantIds = getMatchingVariantIdsFromProduct(product, term);
+      return applyVariantContextToProduct(product, matchedVariantIds);
+    });
+    return { products: contextual.slice(0, limit) };
+  }
 
   const variantScan = await shopifyRequest(
     `variants.json?limit=${encodeURIComponent(MAX_LIST_LIMIT)}`
@@ -233,18 +317,29 @@ async function searchProducts(term, limit) {
   const pagedVariants = variants.length >= MAX_LIST_LIMIT
     ? await collectPaginatedList("variants.json", "variants", { maxTotal: SEARCH_SCAN_LIMIT })
     : variants;
-  const ids = [...new Set(
-    pagedVariants
-      .filter(variant => includesIgnoreCase(variant?.sku, term))
-      .map(variant => variant?.product_id)
-      .filter(Boolean)
-  )];
+  const matchedVariants = pagedVariants.filter(variant => variantMatchesTerm(variant, term));
+  const variantIdsByProduct = new Map();
+  matchedVariants.forEach((variant) => {
+    const productId = String(variant?.product_id ?? "");
+    const variantId = String(variant?.id ?? "");
+    if (!productId || !variantId) return;
+    if (!variantIdsByProduct.has(productId)) variantIdsByProduct.set(productId, new Set());
+    variantIdsByProduct.get(productId).add(variantId);
+  });
+
+  const ids = [...variantIdsByProduct.keys()];
   if (ids.length > 0) {
     const idSlice = ids.slice(0, limit).join(",");
     const byIds = await shopifyRequest(
       `products.json?ids=${encodeURIComponent(idSlice)}&limit=${encodeURIComponent(limit)}`
     );
-    if (Array.isArray(byIds?.products) && byIds.products.length > 0) return byIds;
+    if (Array.isArray(byIds?.products) && byIds.products.length > 0) {
+      const contextual = byIds.products.map((product) => {
+        const matchedIds = [...(variantIdsByProduct.get(String(product?.id ?? "")) || [])];
+        return applyVariantContextToProduct(product, matchedIds);
+      });
+      return { products: contextual.slice(0, limit) };
+    }
   }
 
   const directScan = await shopifyRequest(
@@ -252,14 +347,21 @@ async function searchProducts(term, limit) {
   );
   const directList = Array.isArray(directScan?.products) ? directScan.products : [];
   if (directList.length > 0) {
-    const filtered = directList.filter(product => isProductMatch(product, term)).slice(0, limit);
+    const filtered = directList
+      .filter(product => isProductMatch(product, term))
+      .map(product => applyVariantContextToProduct(product, getMatchingVariantIdsFromProduct(product, term)))
+      .slice(0, limit);
     if (filtered.length > 0) return { products: filtered };
   }
 
   const pagedList = await collectPaginatedList("products.json", "products", {
     maxTotal: SEARCH_SCAN_LIMIT
   });
-  return { products: pagedList.filter(product => isProductMatch(product, term)).slice(0, limit) };
+  const filteredPaged = pagedList
+    .filter(product => isProductMatch(product, term))
+    .map(product => applyVariantContextToProduct(product, getMatchingVariantIdsFromProduct(product, term)))
+    .slice(0, limit);
+  return { products: filteredPaged };
 }
 
 function webhookMatchesTerm(webhook, term) {

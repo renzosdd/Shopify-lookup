@@ -22,7 +22,12 @@ const LOOKUP_CONFIG = {
     rowMeta: (item) => `ID ${item?.id ?? "-"} • vendor ${item?.vendor || "-"} • variants ${item?.variants?.length ?? 0}`,
     detailMeta: (item) => `Product ${item?.id ?? "-"} • status ${item?.status || "-"}`,
     detailPairs: (item, context = {}) => {
-      const pickedVariant = pickPreferredVariant(item, context.lookupTerm || "");
+      const resolved = resolveLookupVariants(
+        item,
+        context.lookupTerm || "",
+        context.lookupVariantIds || []
+      );
+      const pickedVariant = resolved.variants[0] || null;
       return [
         ["Product ID", toShopifyGid("Product", item?.id)],
         ["Variant ID", toShopifyGid("ProductVariant", pickedVariant?.id)],
@@ -33,7 +38,7 @@ const LOOKUP_CONFIG = {
         ["Type", item?.product_type],
         ["Status", item?.status],
         ["Handle", item?.handle],
-        ["Variants", item?.variants?.length ?? 0],
+        ["Variants shown", resolved.variants.length],
         ["Created", formatDate(item?.created_at)]
       ];
     }
@@ -188,26 +193,69 @@ function toShopifyGid(resourceType, numericId) {
   return `gid://shopify/${resourceType}/${numericId}`;
 }
 
-function pickPreferredVariant(product, hint = "") {
+function uniqueStringIds(values) {
+  return [...new Set((Array.isArray(values) ? values : [])
+    .filter((value) => value !== null && value !== undefined && value !== "")
+    .map((value) => String(value)))];
+}
+
+function resolveLookupVariants(product, hint = "", explicitVariantIds = []) {
   const variants = Array.isArray(product?.variants) ? product.variants : [];
-  if (!variants.length) return null;
+  if (!variants.length) return { variants: [], matchedIds: [] };
+
+  const contextualIds = uniqueStringIds([
+    ...(Array.isArray(product?.lookupVariantIds) ? product.lookupVariantIds : []),
+    ...(Array.isArray(explicitVariantIds) ? explicitVariantIds : [])
+  ]);
+  if (contextualIds.length) {
+    const byContext = variants.filter((variant) => contextualIds.includes(String(variant?.id)));
+    if (byContext.length) {
+      return {
+        variants: byContext,
+        matchedIds: uniqueStringIds(byContext.map((variant) => variant?.id))
+      };
+    }
+  }
 
   const cleaned = String(hint || "").trim();
-  if (!cleaned) return variants[0];
+  if (!cleaned) return { variants, matchedIds: [] };
 
   if (isNumericId(cleaned)) {
-    const byId = variants.find((variant) => String(variant?.id) === cleaned);
-    if (byId) return byId;
+    const byId = variants.filter((variant) => String(variant?.id) === cleaned);
+    if (byId.length) {
+      return { variants: byId, matchedIds: [cleaned] };
+    }
   }
 
   const lowered = cleaned.toLowerCase();
-  const exactSku = variants.find((variant) => String(variant?.sku || "").toLowerCase() === lowered);
-  if (exactSku) return exactSku;
+  const exactSku = variants.filter((variant) => String(variant?.sku || "").toLowerCase() === lowered);
+  if (exactSku.length) {
+    return {
+      variants: exactSku,
+      matchedIds: uniqueStringIds(exactSku.map((variant) => variant?.id))
+    };
+  }
 
-  const partialSku = variants.find((variant) => String(variant?.sku || "").toLowerCase().includes(lowered));
-  if (partialSku) return partialSku;
+  const partialSku = variants.filter((variant) => String(variant?.sku || "").toLowerCase().includes(lowered));
+  if (partialSku.length) {
+    return {
+      variants: partialSku,
+      matchedIds: uniqueStringIds(partialSku.map((variant) => variant?.id))
+    };
+  }
 
-  return variants[0];
+  return { variants, matchedIds: [] };
+}
+
+function applyVariantLookupContext(product, hint = "", explicitVariantIds = []) {
+  if (!product || typeof product !== "object") return product;
+  const resolved = resolveLookupVariants(product, hint, explicitVariantIds);
+  if (!resolved?.matchedIds?.length) return product;
+  return {
+    ...product,
+    variants: resolved.variants,
+    lookupVariantIds: resolved.matchedIds
+  };
 }
 
 function csvEscape(value) {
@@ -232,7 +280,8 @@ function downloadTextFile(filename, content, mimeType = "text/plain;charset=utf-
   setTimeout(() => URL.revokeObjectURL(url), 300);
 }
 
-function buildNetsuiteCsvRowsFromProducts(products, storeSite) {
+function buildNetsuiteCsvRowsFromProducts(products, storeSite, options = {}) {
+  const lookupTerm = String(options?.lookupTerm || "").trim();
   const rows = [
     ["NetSuite Item Id", "Foreign Item Id", "Foreign Variant Id", "Foreign Inventory Id", "Store Site"]
   ];
@@ -240,7 +289,8 @@ function buildNetsuiteCsvRowsFromProducts(products, storeSite) {
   const safeProducts = Array.isArray(products) ? products : [];
   safeProducts.forEach((product) => {
     const productGid = toShopifyGid("Product", product?.id);
-    const variants = Array.isArray(product?.variants) ? product.variants : [];
+    const resolved = resolveLookupVariants(product, lookupTerm);
+    const variants = resolved.variants;
 
     if (!variants.length) {
       rows.push([
@@ -372,10 +422,11 @@ function extractItems(entity, data) {
 function legacyItemMatches(entity, item, term) {
   const needle = normalize(term);
   if (!needle) return true;
-  if (isNumericId(needle)) return String(item?.id ?? "") === needle;
+  const numericNeedle = isNumericId(needle);
 
   switch (entity) {
     case "orders":
+      if (numericNeedle && String(item?.id ?? "") === needle) return true;
       return [
         item?.id,
         item?.name,
@@ -386,6 +437,7 @@ function legacyItemMatches(entity, item, term) {
         item?.customer?.phone
       ].some((v) => normalize(v).includes(needle));
     case "customers":
+      if (numericNeedle && String(item?.id ?? "") === needle) return true;
       return [
         item?.id,
         item?.email,
@@ -394,14 +446,24 @@ function legacyItemMatches(entity, item, term) {
         item?.last_name
       ].some((v) => normalize(v).includes(needle));
     case "products":
-      return [
+      if (numericNeedle && String(item?.id ?? "") === needle) return true;
+      if ([
         item?.id,
         item?.title,
         item?.vendor,
         item?.handle,
         item?.product_type
-      ].some((v) => normalize(v).includes(needle));
+      ].some((v) => normalize(v).includes(needle))) {
+        return true;
+      }
+
+      const variants = Array.isArray(item?.variants) ? item.variants : [];
+      if (numericNeedle && variants.some((variant) => String(variant?.id ?? "") === needle)) {
+        return true;
+      }
+      return variants.some((variant) => normalize(variant?.sku).includes(needle));
     case "webhooks":
+      if (numericNeedle && String(item?.id ?? "") === needle) return true;
       return [
         item?.id,
         item?.topic,
@@ -505,7 +567,8 @@ function renderDetailCard(detail = null) {
 
   metaEl.textContent = cfg.detailMeta(detail);
   const lookupTerm = state.lastLookupTermByType[state.currentType] || "";
-  const rows = cfg.detailPairs(detail, { lookupTerm }).map(([label, value]) => `
+  const lookupVariantIds = uniqueStringIds(detail?.lookupVariantIds);
+  const rows = cfg.detailPairs(detail, { lookupTerm, lookupVariantIds }).map(([label, value]) => `
     <div class="summary-row">
       <span class="summary-label">${escapeHtml(label)}</span>
       <span class="summary-value">${escapeHtml(safeValue(value))}</span>
@@ -677,6 +740,12 @@ async function runLookup() {
 async function openDetailForRecord(id) {
   const cfg = getConfigByType(state.currentType);
   if (!id) return;
+  const lookupTerm = state.lastLookupTermByType[state.currentType] || "";
+
+  const selectedSummaryItem = cfg.type === "item"
+    ? (state.resultsByType.item || []).find((entry) => String(entry?.id ?? "") === String(id))
+    : null;
+  const summaryVariantIds = uniqueStringIds(selectedSummaryItem?.lookupVariantIds);
 
   setBusy("lookup", true);
   setStatus(`Loading ${cfg.singular.toLowerCase()} detail...`);
@@ -689,7 +758,10 @@ async function openDetailForRecord(id) {
   }
 
   setStorePills(res.store);
-  const detail = res?.data?.[cfg.detailKey];
+  let detail = res?.data?.[cfg.detailKey];
+  if (cfg.type === "item") {
+    detail = applyVariantLookupContext(detail, lookupTerm, summaryVariantIds);
+  }
   if (!detail) {
     setStatus("No detail payload returned.", "bad");
     return;
@@ -726,7 +798,11 @@ function exportLoadedItemsCsv() {
     return;
   }
 
-  const rows = buildNetsuiteCsvRowsFromProducts(products, getStoreSiteValue());
+  const rows = buildNetsuiteCsvRowsFromProducts(
+    products,
+    getStoreSiteValue(),
+    { lookupTerm: state.lastLookupTermByType.item || "" }
+  );
   if (rows.length <= 1) {
     setStatus("No rows generated for loaded items.", "warn");
     return;
