@@ -87,6 +87,12 @@
         gap: 8px;
         margin-top: 8px;
       }
+      .csv-grid {
+        display: grid;
+        grid-template-columns: 90px 1fr 1fr;
+        gap: 8px;
+        margin-top: 8px;
+      }
       select,
       input {
         width: 100%;
@@ -188,7 +194,9 @@
         gap: 6px;
       }
       .summary-row {
-        display: flex;
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        align-items: center;
         justify-content: space-between;
         gap: 12px;
         padding: 6px 8px;
@@ -207,6 +215,7 @@
         font-size: 12px;
         color: #111827;
         word-break: break-all;
+        min-width: 0;
       }
       .dialog {
         width: min(760px, 90vw);
@@ -284,6 +293,12 @@
         <button class="btn primary" id="lookup" type="button">Look up</button>
         <button class="btn secondary" id="viewPayload" type="button" disabled>View payload</button>
         <button class="btn secondary" id="downloadPayload" type="button" disabled>Download JSON</button>
+      </div>
+
+      <div class="csv-grid">
+        <input id="storeSite" value="1" aria-label="Store site for CSV export" />
+        <button class="btn ghost" id="downloadItemCsv" type="button">CSV loaded items</button>
+        <button class="btn ghost" id="downloadAllProductsCsv" type="button">CSV all products</button>
       </div>
 
       <div id="status" class="status">Ready.</div>

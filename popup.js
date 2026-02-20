@@ -21,16 +21,22 @@ const LOOKUP_CONFIG = {
     rowTitle: (item) => item?.title || `Product ${item?.id ?? "-"}`,
     rowMeta: (item) => `ID ${item?.id ?? "-"} • vendor ${item?.vendor || "-"} • variants ${item?.variants?.length ?? 0}`,
     detailMeta: (item) => `Product ${item?.id ?? "-"} • status ${item?.status || "-"}`,
-    detailPairs: (item) => ([
-      ["ID", item?.id],
-      ["Title", item?.title],
-      ["Vendor", item?.vendor],
-      ["Type", item?.product_type],
-      ["Status", item?.status],
-      ["Handle", item?.handle],
-      ["Variants", item?.variants?.length ?? 0],
-      ["Created", formatDate(item?.created_at)]
-    ])
+    detailPairs: (item, context = {}) => {
+      const pickedVariant = pickPreferredVariant(item, context.lookupTerm || "");
+      return [
+        ["Product ID", toShopifyGid("Product", item?.id)],
+        ["Variant ID", toShopifyGid("ProductVariant", pickedVariant?.id)],
+        ["Inventory ID", toShopifyGid("InventoryItem", pickedVariant?.inventory_item_id)],
+        ["Variant SKU", pickedVariant?.sku || "-"],
+        ["Title", item?.title],
+        ["Vendor", item?.vendor],
+        ["Type", item?.product_type],
+        ["Status", item?.status],
+        ["Handle", item?.handle],
+        ["Variants", item?.variants?.length ?? 0],
+        ["Created", formatDate(item?.created_at)]
+      ];
+    }
   },
   order: {
     type: "order",
@@ -139,6 +145,12 @@ const state = {
     customer: [],
     hooks: []
   },
+  lastLookupTermByType: {
+    item: "",
+    order: "",
+    customer: "",
+    hooks: ""
+  },
   selectedDetail: null,
   lastPayload: null,
   lastPayloadType: null
@@ -169,6 +181,91 @@ function escapeHtml(value) {
 function safeValue(value) {
   if (value === null || value === undefined || value === "") return "-";
   return String(value);
+}
+
+function toShopifyGid(resourceType, numericId) {
+  if (numericId === null || numericId === undefined || numericId === "") return "-";
+  return `gid://shopify/${resourceType}/${numericId}`;
+}
+
+function pickPreferredVariant(product, hint = "") {
+  const variants = Array.isArray(product?.variants) ? product.variants : [];
+  if (!variants.length) return null;
+
+  const cleaned = String(hint || "").trim();
+  if (!cleaned) return variants[0];
+
+  if (isNumericId(cleaned)) {
+    const byId = variants.find((variant) => String(variant?.id) === cleaned);
+    if (byId) return byId;
+  }
+
+  const lowered = cleaned.toLowerCase();
+  const exactSku = variants.find((variant) => String(variant?.sku || "").toLowerCase() === lowered);
+  if (exactSku) return exactSku;
+
+  const partialSku = variants.find((variant) => String(variant?.sku || "").toLowerCase().includes(lowered));
+  if (partialSku) return partialSku;
+
+  return variants[0];
+}
+
+function csvEscape(value) {
+  const text = value === null || value === undefined ? "" : String(value);
+  if (/[",\n]/.test(text)) return `"${text.replace(/"/g, "\"\"")}"`;
+  return text;
+}
+
+function toCsv(rows) {
+  return rows.map((row) => row.map((cell) => csvEscape(cell)).join(",")).join("\n");
+}
+
+function downloadTextFile(filename, content, mimeType = "text/plain;charset=utf-8") {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 300);
+}
+
+function buildNetsuiteCsvRowsFromProducts(products, storeSite) {
+  const rows = [
+    ["NetSuite Item Id", "Foreign Item Id", "Foreign Variant Id", "Foreign Inventory Id", "Store Site"]
+  ];
+
+  const safeProducts = Array.isArray(products) ? products : [];
+  safeProducts.forEach((product) => {
+    const productGid = toShopifyGid("Product", product?.id);
+    const variants = Array.isArray(product?.variants) ? product.variants : [];
+
+    if (!variants.length) {
+      rows.push([
+        product?.handle || product?.title || String(product?.id || ""),
+        productGid,
+        "",
+        "",
+        storeSite
+      ]);
+      return;
+    }
+
+    variants.forEach((variant) => {
+      const nsItemId = variant?.sku || product?.handle || product?.title || String(product?.id || "");
+      rows.push([
+        nsItemId,
+        productGid,
+        toShopifyGid("ProductVariant", variant?.id),
+        toShopifyGid("InventoryItem", variant?.inventory_item_id),
+        storeSite
+      ]);
+    });
+  });
+
+  return rows;
 }
 
 function formatDate(input) {
@@ -407,10 +504,12 @@ function renderDetailCard(detail = null) {
   }
 
   metaEl.textContent = cfg.detailMeta(detail);
-  const rows = cfg.detailPairs(detail).map(([label, value]) => `
+  const lookupTerm = state.lastLookupTermByType[state.currentType] || "";
+  const rows = cfg.detailPairs(detail, { lookupTerm }).map(([label, value]) => `
     <div class="summary-row">
       <span class="summary-label">${escapeHtml(label)}</span>
       <span class="summary-value">${escapeHtml(safeValue(value))}</span>
+      <button class="btn ghost small copy-value" data-copy-value="${escapeHtml(safeValue(value))}" type="button">Copy</button>
     </div>
   `);
   summaryEl.innerHTML = rows.join("");
@@ -533,6 +632,8 @@ async function runLookup() {
     return;
   }
 
+  state.lastLookupTermByType[state.currentType] = term;
+
   setBusy("lookup", true);
   setStatus(
     hooksAllMode ? "Loading all webhooks..." : `Looking up ${cfg.label}...`,
@@ -609,6 +710,60 @@ async function openDetailForRecord(id) {
   setPayloadState(true);
 }
 
+function getStoreSiteValue() {
+  const raw = String($("storeSite")?.value ?? "").trim();
+  return raw || "1";
+}
+
+function csvTimestamp() {
+  return new Date().toISOString().replace(/[:.]/g, "-");
+}
+
+function exportLoadedItemsCsv() {
+  const products = state.resultsByType.item || [];
+  if (!products.length) {
+    setStatus("No loaded items to export. Run an item lookup first.", "warn");
+    return;
+  }
+
+  const rows = buildNetsuiteCsvRowsFromProducts(products, getStoreSiteValue());
+  if (rows.length <= 1) {
+    setStatus("No rows generated for loaded items.", "warn");
+    return;
+  }
+
+  const csv = toCsv(rows);
+  const filename = `shopify-items-loaded-netsuite-${csvTimestamp()}.csv`;
+  downloadTextFile(filename, csv, "text/csv;charset=utf-8");
+  setStatus(`CSV exported for loaded items (${rows.length - 1} rows).`, "ok");
+}
+
+async function exportAllProductsCsv() {
+  setBusy("downloadAllProductsCsv", true);
+  setStatus("Loading all products for CSV export...");
+
+  const res = await call("LIST_ALL_PRODUCTS");
+  setBusy("downloadAllProductsCsv", false);
+
+  if (!res?.ok) {
+    setStatus(`Error exporting all products: ${res?.error || "unknown"}`, "bad");
+    return;
+  }
+
+  setStorePills(res.store);
+  const products = extractItems("products", res.data);
+  if (!products.length) {
+    setStatus("No products found to export.", "warn");
+    return;
+  }
+
+  const rows = buildNetsuiteCsvRowsFromProducts(products, getStoreSiteValue());
+  const csv = toCsv(rows);
+  const filename = `shopify-products-all-netsuite-${csvTimestamp()}.csv`;
+  downloadTextFile(filename, csv, "text/csv;charset=utf-8");
+  setStatus(`CSV exported for all products (${rows.length - 1} rows).`, "ok");
+}
+
 function bindEvents() {
   $("openOptions").addEventListener("click", (event) => {
     event.preventDefault();
@@ -636,6 +791,22 @@ function bindEvents() {
     if (!id) return;
     openDetailForRecord(id);
   });
+
+  $("resultSummary").addEventListener("click", async (event) => {
+    const button = event.target.closest(".copy-value");
+    if (!button) return;
+    const value = button.getAttribute("data-copy-value") || "";
+    if (!value || value === "-") return;
+    try {
+      await navigator.clipboard.writeText(value);
+      setStatus("Value copied to clipboard.", "ok");
+    } catch (error) {
+      setStatus("Could not copy value.", "bad");
+    }
+  });
+
+  $("downloadItemCsv").addEventListener("click", () => exportLoadedItemsCsv());
+  $("downloadAllProductsCsv").addEventListener("click", () => exportAllProductsCsv());
 
   $("viewPayload").addEventListener("click", () => openPayloadDialog());
   $("downloadPayload").addEventListener("click", () => downloadPayload());

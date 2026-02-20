@@ -7,6 +7,7 @@ const DEFAULT_SEARCH_LIMIT = 10;
 const MAX_LIST_LIMIT = 250;
 const DEFAULT_LIST_LIMIT = 50;
 const SEARCH_SCAN_LIMIT = 500;
+const MAX_ALL_PRODUCTS_EXPORT = 100000;
 
 async function getActiveStore() {
   const { activeStoreId, stores } = await chrome.storage.local.get(["activeStoreId", "stores"]);
@@ -118,6 +119,14 @@ function isProductMatch(product, term) {
 async function listAllWebhooks() {
   const all = await collectPaginatedList("webhooks.json", "webhooks", { maxTotal: Number.MAX_SAFE_INTEGER });
   return { webhooks: all };
+}
+
+async function listAllProducts(maxTotal = MAX_ALL_PRODUCTS_EXPORT) {
+  const safeMax = Number.isFinite(Number(maxTotal))
+    ? Math.min(MAX_ALL_PRODUCTS_EXPORT, Math.max(1, Math.trunc(Number(maxTotal))))
+    : MAX_ALL_PRODUCTS_EXPORT;
+  const all = await collectPaginatedList("products.json", "products", { maxTotal: safeMax });
+  return { products: all };
 }
 
 async function collectPaginatedList(path, listKey, { params = {}, maxTotal = SEARCH_SCAN_LIMIT } = {}) {
@@ -320,6 +329,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         case "LIST_PRODUCTS": {
           const limit = clampListLimit(msg.limit);
           const data = await shopifyRequest(`products.json?limit=${encodeURIComponent(limit)}`);
+          return sendResponse({ ok: true, store: toStoreMeta(store), data });
+        }
+        case "LIST_ALL_PRODUCTS": {
+          const data = await listAllProducts(msg.maxTotal);
           return sendResponse({ ok: true, store: toStoreMeta(store), data });
         }
         case "SEARCH_ORDERS": {
