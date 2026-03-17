@@ -28,6 +28,7 @@ Abrí el popup:
 - **View detail**: carga el detalle completo del registro seleccionado
 - **View payload**: abre el JSON completo (search o detail) en un modal
 - **Download payload**: descarga el último payload como archivo `.json`
+- **Payload de Orders**: se exporta en formato plano del pedido (sin wrapper de metadata del lookup)
 - **Item detail IDs**: muestra `Product ID`, `Variant ID` e `Inventory ID` en formato `gid://...` con botón de copia
 - **Lookup por SKU/variant**: al abrir detalle de item prioriza la variant buscada (no muestra todas las variants si hubo match específico)
 - **CSV loaded items**: exporta los productos cargados al formato NetSuite `NetSuite Item Id,Foreign Item Id,Foreign Variant Id,Foreign Inventory Id,Store Site`

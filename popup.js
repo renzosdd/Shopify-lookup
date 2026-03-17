@@ -377,7 +377,20 @@ function setPayloadState(enabled) {
   $("dialogDownload").disabled = !enabled;
 }
 
+function buildOrderPayload(kind, response) {
+  if (kind === "DETAIL") {
+    return response?.data?.order || null;
+  }
+  const orders = Array.isArray(response?.data?.orders) ? response.data.orders : [];
+  if (orders.length === 1) return orders[0];
+  return orders;
+}
+
 function buildPayload(kind, response, meta = {}) {
+  if (state.currentType === "order") {
+    return buildOrderPayload(kind, response);
+  }
+
   return {
     kind,
     lookupType: state.currentType,
